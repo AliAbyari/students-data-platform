@@ -1,0 +1,18 @@
+@inject I18n L
+
+<div class="table-foot">
+    <span>@L.Format("showing", Total) · @L.Format("page_of", Page, Math.Max(1, Pages))</span>
+    <div class="btn-row">
+        <button class="btn sm" disabled="@(Page <= 1)" @onclick="() => Go(Page - 1)">@L["previous"]</button>
+        <button class="btn sm" disabled="@(Page >= Pages)" @onclick="() => Go(Page + 1)">@L["next"]</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Page { get; set; }
+    [Parameter] public int Pages { get; set; }
+    [Parameter] public int Total { get; set; }
+    [Parameter] public EventCallback<int> OnPage { get; set; }
+
+    private Task Go(int page) => OnPage.InvokeAsync(page);
+}

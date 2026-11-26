@@ -1,0 +1,18 @@
+apiVersion: 1
+
+providers:
+  - name: students-platform
+    folder: Students Data Platform
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+
+  - name: platform-monitoring
+    folder: Platform Monitoring
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards-monitoring

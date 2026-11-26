@@ -1,0 +1,53 @@
+@inject I18n L
+
+@{
+    var total = Segments.Sum(s => s.Value);
+}
+<div class="donut-wrap">
+    <svg viewBox="0 0 120 120" role="img" aria-label="@CenterLabel">
+        <circle cx="60" cy="60" r="@Radius" fill="none" stroke="var(--surface-3)" stroke-width="16" />
+        @if (total > 0)
+        {
+            var offset = 0.0;
+            foreach (var segment in Segments)
+            {
+                var length = Circumference * segment.Value / total;
+                <circle cx="60" cy="60" r="@Radius" fill="none" stroke="@segment.Color" stroke-width="16"
+                        stroke-dasharray="@F(length) @F(Circumference - length)" stroke-dashoffset="@F(-offset)"
+                        transform="rotate(-90 60 60)">
+                    <title>@segment.Label: @L.N(segment.Value)</title>
+                </circle>
+                offset += length;
+            }
+        }
+        <text x="60" y="60" text-anchor="middle" class="donut-center-value" style="font-size: @CenterFontSize(L.N(total))">@L.N(total)</text>
+        <text x="60" y="76" text-anchor="middle" style="fill: var(--muted); font-size: @LabelFontSize(CenterLabel)">@CenterLabel</text>
+    </svg>
+    <div class="donut-legend">
+        @foreach (var segment in Segments)
+        {
+            <div class="row">
+                <span class="dot" style="background: @segment.Color"></span>
+                <span>@segment.Label</span>
+                <b class="num">@L.N(segment.Value)</b>
+                <span class="muted small num">@L.Pct(total > 0 ? 100 * segment.Value / total : 0)</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    public sealed record Segment(string Label, double Value, string Color);
+
+    [Parameter] public IReadOnlyList<Segment> Segments { get; set; } = [];
+    [Parameter] public string? CenterLabel { get; set; }
+
+    private const double Radius = 44;
+    private static readonly double Circumference = 2 * Math.PI * Radius;
+
+    private static string CenterFontSize(string text) => text.Length switch { <= 6 => "20px", <= 8 => "15px", _ => "12px" };
+
+    private static string LabelFontSize(string? text) => (text?.Length ?? 0) <= 12 ? "9px" : "7px";
+
+    private static string F(double value) => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+}

@@ -1,0 +1,74 @@
+groups:
+  - name: availability
+    rules:
+      - alert: KafkaDown
+        expr: probe_success{service="Kafka broker"} == 0 or absent(kafka_brokers) or max(kafka_brokers) < 1
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: Kafka broker is not reachable; the CDC stream is stopped.
+      - alert: ServiceDown
+        expr: probe_success == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.service }} is not answering its health probe."
+      - alert: DebeziumConnectorNotRunning
+        expr: probe_success{service="Debezium connector"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: The SQL Server CDC connector or one of its tasks is not RUNNING.
+      - alert: ExporterDown
+        expr: up{job!="probe"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down."
+
+  - name: load
+    rules:
+      - alert: HostHighCpu
+        expr: 100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[2m]))) > 85
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Docker host CPU above 85% ({{ $value | printf \"%.0f\" }}%)."
+      - alert: HostHighMemory
+        expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 90
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Docker host memory above 90% ({{ $value | printf \"%.0f\" }}%)."
+      - alert: HostDiskAlmostFull
+        expr: 100 * (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|fuse.*|9p|nsfs|ramfs|iso9660",mountpoint!~"/snap/.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|fuse.*|9p|nsfs|ramfs|iso9660",mountpoint!~"/snap/.*"}) > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} is {{ $value | printf \"%.0f\" }}% full."
+      - alert: ContainerHighCpu
+        expr: sum by (service) (rate(docker_container_cpu_seconds_total[2m])) > 1.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.service }} uses more than 1.5 CPU cores."
+      - alert: ContainerRestarted
+        expr: time() - max by (service) (docker_container_started_at_seconds) < 300
+        labels: { severity: info }
+        annotations:
+          summary: "{{ $labels.service }} (re)started in the last 5 minutes."
+
+  - name: streaming
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup) (kafka_consumergroup_lag) > 1000
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Consumer group {{ $labels.consumergroup }} is {{ $value }} messages behind."
+      - alert: KafkaUnderReplicatedPartitions
+        expr: sum(kafka_topic_partition_under_replicated_partition) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Some Kafka partitions are under-replicated.

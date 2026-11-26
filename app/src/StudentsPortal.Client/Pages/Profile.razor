@@ -1,0 +1,112 @@
+@page "/profile"
+@inherits PortalPage
+
+<PageTitle>@L["profile_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@L["profile_title"]</h1>
+        <p>@L["profile_subtitle"]</p>
+    </div>
+</div>
+
+@if (Session.User is { } user)
+{
+    <div class="narrow">
+        <div class="card" style="display: flex; align-items: center; gap: 14px; padding: 16px 18px">
+            <div class="avatar">@($"{user.FirstName.FirstOrDefault()}{user.LastName.FirstOrDefault()}".ToUpperInvariant())</div>
+            <div>
+                <div style="font-weight: 800">@user.FirstName @user.LastName</div>
+                <div class="muted small">@L["role_" + user.Role] · <span class="mono">@user.Username</span></div>
+                <div class="muted small">@L.Format("member_since", user.UserId, L.Date(user.CreatedAt))</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>@L["personal_info"]</h2></div>
+            <div class="card-body">
+                <div class="form-grid cols-2">
+                    <FormField Label="@L["first_name"]" Error="@FieldError("firstName")"><input class="input" @bind="firstName" /></FormField>
+                    <FormField Label="@L["last_name"]" Error="@FieldError("lastName")"><input class="input" @bind="lastName" /></FormField>
+                    <FormField Label="@L["email"]" Optional="true" Error="@FieldError("email")" Wide="true"><input class="input ltr-input" @bind="email" /></FormField>
+                </div>
+            </div>
+            <div class="section" style="border-top: 1px solid var(--border)">
+                <h3>@L["preferences"]</h3>
+                <div class="btn-row">
+                    <span class="muted small">@L["language"]</span>
+                    <div class="toggle">
+                        <button class="@(language == "fa" ? "on" : "")" @onclick='() => language = "fa"'>فارسی</button>
+                        <button class="@(language == "en" ? "on" : "")" @onclick='() => language = "en"'>English</button>
+                    </div>
+                    <span class="muted small" style="margin-inline-start: 16px">@L["theme"]</span>
+                    <div class="toggle">
+                        <button class="@(theme == "dark" ? "on" : "")" @onclick='() => theme = "dark"'>@L["dark_mode"]</button>
+                        <button class="@(theme == "light" ? "on" : "")" @onclick='() => theme = "light"'>@L["light_mode"]</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-foot"><button class="btn primary" @onclick="SaveProfile" disabled="@Busy">@L["save_profile"]</button></div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>@L["change_password"]</h2></div>
+            <div class="card-body">
+                <div class="form-grid cols-2">
+                    <FormField Label="@L["current_password"]" Error="@FieldError("currentPassword")" Wide="true">
+                        <input class="input ltr-input" type="password" @bind="currentPassword" autocomplete="current-password" />
+                    </FormField>
+                    <FormField Label="@L["new_password"]" Error="@FieldError("newPassword")" Help="@L["password_rules"]">
+                        <input class="input ltr-input" type="password" @bind="newPassword" autocomplete="new-password" />
+                    </FormField>
+                    <FormField Label="@L["confirm_password"]" Error="@mismatch">
+                        <input class="input ltr-input" type="password" @bind="confirmPassword" autocomplete="new-password" />
+                    </FormField>
+                </div>
+            </div>
+            <div class="card-foot"><button class="btn primary" @onclick="ChangePassword" disabled="@Busy">@L["change_password"]</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private string firstName = "", lastName = "", language = "fa", theme = "dark";
+    private string? email, mismatch;
+    private string currentPassword = "", newPassword = "", confirmPassword = "";
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        if (Session.User is { } user)
+        {
+            (firstName, lastName, email) = (user.FirstName, user.LastName, user.Email);
+            language = L.Language;
+            theme = Session.Theme;
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        await RunAsync(async () =>
+        {
+            var updated = await Api.PutAsync<UserProfile>("api/profile",
+                new UpdateProfileRequest(firstName, lastName, email, language, theme));
+            await Session.UpdateUserAsync(updated);
+            await Session.SetThemeAsync(theme);
+            await Session.SetLanguageAsync(language);
+        }, "saved");
+    }
+
+    private async Task ChangePassword()
+    {
+        mismatch = newPassword != confirmPassword ? L["password_mismatch"] : null;
+        if (mismatch is not null) return;
+        var ok = await RunAsync(async () =>
+        {
+            var response = await Api.PutAsync<LoginResponse>("api/profile/password",
+                new ChangePasswordRequest(currentPassword, newPassword));
+            await Session.SignInAsync(response);
+        }, "password_changed");
+        if (ok) currentPassword = newPassword = confirmPassword = "";
+    }
+}

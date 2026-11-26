@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-theme="light">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Students Data Platform — operational records and warehouse analytics" />
+    <meta name="theme-color" content="#e8eefc" />
+    <title>سامانه داده دانشجویان</title>
+    <base href="/" />
+    <script>
+        (function () {
+            try {
+                var lang = localStorage.getItem('sp.lang') || 'fa';
+                var theme = localStorage.getItem('sp.theme') || 'light';
+                var root = document.documentElement;
+                root.lang = lang; root.dir = lang === 'fa' ? 'rtl' : 'ltr'; root.dataset.theme = theme;
+            } catch (e) { }
+        })();
+    </script>
+    <link rel="preload" href="fonts/Vazirmatn-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="css/app.css" />
+    <link href="manifest.webmanifest" rel="manifest" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+</head>
+
+<body>
+    <div id="app">
+        <div class="boot">
+            <img src="icon-192.png" alt="" width="96" height="96" />
+            <div class="boot-title">Students Data Platform · سامانه داده دانشجویان</div>
+            <div class="boot-bar"><span></span></div>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        <span>An unexpected error occurred · خطای غیرمنتظره‌ای رخ داد</span>
+        <a href="." class="reload">Reload · بارگذاری مجدد</a>
+        <span class="dismiss">✕</span>
+    </div>
+    <script src="js/portal.js"></script>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>navigator.serviceWorker && navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+</body>
+
+</html>

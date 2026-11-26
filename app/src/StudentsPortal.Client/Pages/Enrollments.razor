@@ -1,0 +1,126 @@
+@page "/enrollments"
+@inherits PortalPage
+@inject IJSRuntime JS
+
+<PageTitle>@L["enrollments_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_operations"] / @L["nav_enrollments"]</div>
+        <h1>@L["enrollments_title"]</h1>
+        <p>@L["enrollments_subtitle"]</p>
+    </div>
+</div>
+
+<div class="card narrow">
+    <div class="card-head"><h2>@(form.CourseEnrollmentId > 0 ? L.Format("editing_record", form.CourseEnrollmentId) : L["new_record"])</h2></div>
+    <fieldset disabled="@(!IsAdmin)" style="border: 0; margin: 0; padding: 0">
+        <div class="section">
+            <div class="form-grid">
+                <FormField Label="@L["student_id"]" Error="@FieldError("studentId")"><input class="input ltr-input" type="number" @bind="form.StudentId" /></FormField>
+                <FormField Label="@L["offering_id"]" Error="@FieldError("courseOfferingId")"><input class="input ltr-input" type="number" @bind="form.CourseOfferingId" /></FormField>
+                <FormField Label="@L["grade"]" Error="@FieldError("grade")">
+                    <select class="input" @bind="form.Grade">
+                        <option value="">@L["no_grade"]</option>
+                        @foreach (var g in new[] { "A", "B", "C", "D", "F", "W" }) { <option value="@g">@g</option> }
+                    </select>
+                </FormField>
+            </div>
+        </div>
+    </fieldset>
+    @if (IsAdmin)
+    {
+        <div class="card-foot">
+            <button class="btn success" @onclick="Insert" disabled="@(Busy || form.CourseEnrollmentId > 0)">@L["insert"]</button>
+            <button class="btn warning" @onclick="Update" disabled="@(Busy || form.CourseEnrollmentId == 0)">@L["update"]</button>
+            <button class="btn danger" @onclick="Delete" disabled="@(Busy || form.CourseEnrollmentId == 0)">@L["delete"]</button>
+            <button class="btn ghost" @onclick="Clear">@L["clear"]</button>
+        </div>
+    }
+</div>
+
+<h2 style="margin: 26px 0 10px">@L["enrollment_records"]</h2>
+<div class="card">
+    <div class="card-body" style="padding-top: 16px">
+        <div class="filters f2">
+            <FormField Label="@L["student_id"]"><input class="input ltr-input" type="number" @bind="studentFilter" /></FormField>
+            <FormField Label="@L["offering_id"]"><input class="input ltr-input" type="number" @bind="offeringFilter" /></FormField>
+            <div class="filter-actions">
+                <button class="btn primary" @onclick="() => Load(1)">@L["search"]</button>
+                <button class="btn" @onclick="ClearSearch">@L["clear"]</button>
+            </div>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>@L["id"]</th><th>@L["student"]</th><th>@L["course"]</th><th>@L["term"]</th><th>@L["section"]</th><th>@L["grade"]</th></tr></thead>
+            <tbody>
+                @if (page is not null && page.Items.Count == 0)
+                {
+                    <tr><td colspan="6" class="empty">@L["no_records"]</td></tr>
+                }
+                @foreach (var e in page?.Items ?? [])
+                {
+                    <tr class="clickable @(e.CourseEnrollmentId == form.CourseEnrollmentId ? "selected" : "")" @onclick="() => Select(e)">
+                        <td class="id num">@L.Digits(e.CourseEnrollmentId.ToString())</td>
+                        <td>@e.StudentName<span class="sub">@L["id"] @L.Digits(e.StudentId.ToString())</span></td>
+                        <td><span class="mono">@e.CourseCode</span><span class="sub">@e.CourseTitle</span></td>
+                        <td class="small">@L.Digits(e.TermCode ?? "")</td>
+                        <td class="num">@L.N(e.Section ?? 0)</td>
+                        <td><Badges Kind="grade" Value="@e.Grade" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (page is not null) { <Pager Page="page.Page" Pages="page.Pages" Total="page.Total" OnPage="Load" /> }
+</div>
+
+@code {
+    private EnrollmentDto form = new();
+    private PagedResult<EnrollmentDto>? page;
+    private int? studentFilter, offeringFilter;
+
+    protected override Task OnInitializedAsync() => Load(1);
+
+    private async Task Load(int pageNumber)
+        => await RunAsync(async () => page = await Api.GetAsync<PagedResult<EnrollmentDto>>(ApiClient.Query("api/enrollments",
+               ("studentId", studentFilter), ("offeringId", offeringFilter), ("page", pageNumber))));
+
+    private async Task ClearSearch() { studentFilter = offeringFilter = null; await Load(1); }
+
+    private void Select(EnrollmentDto e)
+    {
+        form = new EnrollmentDto { CourseEnrollmentId = e.CourseEnrollmentId, StudentId = e.StudentId,
+                                   CourseOfferingId = e.CourseOfferingId, Grade = e.Grade };
+        Errors.Clear();
+    }
+
+    private void Clear() { form = new EnrollmentDto(); Errors.Clear(); }
+
+    private async Task Insert()
+    {
+        SavedId? saved = null;
+        if (await RunAsync(async () => saved = await Api.PostAsync<SavedId>("api/enrollments", form), "saved_cdc"))
+        {
+            form.CourseEnrollmentId = saved!.Id;
+            await Load(1);
+        }
+    }
+
+    private async Task Update()
+    {
+        if (await RunAsync(() => Api.PutAsync<SavedId>($"api/enrollments/{form.CourseEnrollmentId}", form), "saved_cdc"))
+            await Load(page?.Page ?? 1);
+    }
+
+    private async Task Delete()
+    {
+        if (!await JS.InvokeAsync<bool>("portal.confirm", L.Format("confirm_delete", form.CourseEnrollmentId))) return;
+        if (await RunAsync(() => Api.DeleteAsync($"api/enrollments/{form.CourseEnrollmentId}"), "deleted"))
+        {
+            Clear();
+            await Load(page?.Page ?? 1);
+        }
+    }
+}

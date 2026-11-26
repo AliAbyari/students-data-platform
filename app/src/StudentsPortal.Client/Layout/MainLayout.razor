@@ -1,0 +1,181 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject I18n L
+@inject Session Session
+@inject Toasts ToastService
+@inject ApiClient Api
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<div class="shell @(navOpen ? "nav-open" : "")">
+    <aside class="sidebar" @onclick="CloseNav">
+        <div class="brand">
+            <img src="icon-192.png" alt="@L["app_name"]" />
+            <div>
+                <div class="brand-name">@L["app_name"]</div>
+                <div class="brand-sub">Data Engineering · Blazor PWA</div>
+            </div>
+        </div>
+
+        <div class="user-card">
+            <div class="avatar">@Initials</div>
+            <div class="user-name">@Session.User?.FirstName @Session.User?.LastName</div>
+            <div class="user-role">@L["role_" + (Session.User?.Role ?? "User")]</div>
+        </div>
+
+        <nav>
+            <div class="nav-section">@L["nav_analytics"]</div>
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All"><Icon Name="dashboard" />@L["nav_dashboard"]</NavLink>
+            <NavLink class="nav-link" href="live"><Icon Name="live" />@L["nav_live"]<span class="live-dot"></span></NavLink>
+            <NavLink class="nav-link" href="pipeline"><Icon Name="pipeline" />@L["nav_pipeline"]</NavLink>
+
+            <div class="nav-section">@L["nav_operations"]</div>
+            <NavLink class="nav-link" href="students"><Icon Name="students" />@L["nav_students"]</NavLink>
+            <NavLink class="nav-link" href="applicants"><Icon Name="applicants" />@L["nav_applicants"]</NavLink>
+            <NavLink class="nav-link" href="offerings"><Icon Name="offerings" />@L["nav_offerings"]</NavLink>
+            <NavLink class="nav-link" href="enrollments"><Icon Name="enrollments" />@L["nav_enrollments"]</NavLink>
+
+            <div class="nav-section">@L["nav_account"]</div>
+            <NavLink class="nav-link" href="profile"><Icon Name="user" />@L["nav_profile"]</NavLink>
+            @if (Session.IsAdmin)
+            {
+                <NavLink class="nav-link" href="users"><Icon Name="users" />@L["nav_users"]</NavLink>
+            }
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="btn sm sidebar-help" @onclick="OpenGuide" title="@L["guide_key_open"]">
+                <span style="display: inline-flex; align-items: center; gap: 8px"><Icon Name="help" Size="15" />@L["guide_button"]</span>
+                <kbd>?</kbd>
+            </button>
+            <button class="btn sm" @onclick="ToggleTheme" title="@L["theme"]">
+                <Icon Name="@(Session.Theme == "dark" ? "sun" : "moon")" Size="15" />@(Session.Theme == "dark" ? L["light_mode"] : L["dark_mode"])
+            </button>
+            <button class="btn sm" @onclick="ToggleLanguage" title="@L["language"]"><Icon Name="globe" Size="15" />@L["switch_language"]</button>
+            <button class="btn sm" @onclick="SignOut"><Icon Name="logout" Size="15" />@L["sign_out"]</button>
+        </div>
+    </aside>
+    <div class="scrim" @onclick="CloseNav"></div>
+
+    <div class="main">
+        <header class="topbar">
+            <button class="btn sm ghost" @onclick="() => navOpen = !navOpen" aria-label="@L["menu"]"><Icon Name="menu" /></button>
+            <img src="icon-192.png" alt="" width="32" height="32" style="object-fit: contain" />
+            <span class="brand-name">@L["app_name"]</span>
+        </header>
+        @if (!online)
+        {
+            <div class="offline-banner">@L["offline"]</div>
+        }
+        <main class="content">
+            @Body
+        </main>
+    </div>
+</div>
+
+<GuideDialog Open="guideOpen" OnClose="CloseGuide" />
+
+<div class="toasts" aria-live="polite">
+    @foreach (var toast in ToastService.Items)
+    {
+        <div class="toast @toast.Kind">
+            <span>@toast.Message</span>
+            <button @onclick="() => ToastService.Dismiss(toast.Id)" aria-label="close">✕</button>
+        </div>
+    }
+</div>
+
+@code {
+    private bool navOpen;
+    private bool guideOpen;
+    private bool online = true;
+    private DotNetObjectReference<MainLayout>? self;
+
+    private string Initials
+    {
+        get
+        {
+            var user = Session.User;
+            if (user is null) return "?";
+            return $"{user.FirstName.FirstOrDefault()}{user.LastName.FirstOrDefault()}".ToUpperInvariant();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.Changed += Refresh;
+        ToastService.Changed += Refresh;
+        self = DotNetObjectReference.Create(this);
+        online = await JS.InvokeAsync<bool>("portal.isOnline");
+        await JS.InvokeVoidAsync("portal.onConnectivity", self);
+        await JS.InvokeVoidAsync("portal.onShortcuts", self);
+        if (Session.JustSignedIn)
+        {
+            Session.JustSignedIn = false;
+            guideOpen = await JS.InvokeAsync<string?>("portal.storage.get", GuideDialog.HideKey) != "1";
+        }
+    }
+
+    [JSInvokable]
+    public void OpenGuide()
+    {
+        guideOpen = true;
+        navOpen = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void CloseGuide()
+    {
+        if (!guideOpen) return;
+        guideOpen = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void SetOnline(bool value)
+    {
+        online = value;
+        StateHasChanged();
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    private void CloseNav() => navOpen = false;
+
+    private async Task ToggleTheme() => await SavePreferences(L.Language, Session.Theme == "dark" ? "light" : "dark");
+
+    private async Task ToggleLanguage() => await SavePreferences(L.IsFa ? "en" : "fa", Session.Theme);
+
+    private async Task SavePreferences(string language, string theme)
+    {
+        await Session.SetThemeAsync(theme);
+        await Session.SetLanguageAsync(language);
+        if (Session.User is { } user)
+        {
+            try
+            {
+                var updated = await Api.PutAsync<UserProfile>("api/profile",
+                    new UpdateProfileRequest(user.FirstName, user.LastName, user.Email, language, theme));
+                await Session.UpdateUserAsync(updated);
+            }
+            catch (ApiException)
+            {
+            }
+        }
+    }
+
+    private async Task SignOut()
+    {
+        try { await Api.PostAsync<object>("api/auth/logout", new { }); } catch (ApiException) { }
+        await Session.SignOutAsync();
+        Nav.NavigateTo("login", replace: true);
+    }
+
+    public void Dispose()
+    {
+        L.Changed -= Refresh;
+        ToastService.Changed -= Refresh;
+        self?.Dispose();
+    }
+}

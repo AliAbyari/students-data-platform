@@ -1,0 +1,127 @@
+@page "/live"
+@inherits PortalPage
+
+<PageTitle>@L["live_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_analytics"] / CDC</div>
+        <h1>@L["live_title"]</h1>
+        <p class="ltr" style="text-align: start">SQL Server CDC → Debezium → Kafka → Spark Structured Streaming → ClickHouse</p>
+    </div>
+    <div class="page-actions">
+        <span class="chip"><span class="live-dot"></span>@L["auto_refresh"] · @L.Digits("3s")</span>
+    </div>
+</div>
+
+<div class="notice" style="margin-bottom: 16px"><Icon Name="bolt" />@L["live_try"]</div>
+
+<div class="grid g-3">
+    <div class="card kpi blue"><div class="kpi-label">@L["events_hour"]</div><div class="kpi-value">@L.N(data?.EventsLastHour ?? 0)</div><div class="kpi-sub">cdc_event_log</div></div>
+    <div class="card kpi green"><div class="kpi-label">@L["median_latency"]</div><div class="kpi-value">@Latency(data?.MedianLatencyMs)</div><div class="kpi-sub">commit → ClickHouse</div></div>
+    <div class="card kpi violet"><div class="kpi-label">@L["p95_latency"]</div><div class="kpi-value">@Latency(data?.P95LatencyMs)</div><div class="kpi-sub">commit → ClickHouse</div></div>
+</div>
+
+<div class="grid g-2-1">
+    <div class="card">
+        <div class="card-head"><h2>@L["events_per_minute"]</h2></div>
+        <div class="card-body"><BarChart Items="@(data?.PerMinute ?? [])" Height="200" /></div>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2>@L["by_table"]</h2></div>
+        <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th>@L["table"]</th><th>@L["events"]</th><th>@L["avg"]</th><th>p95</th></tr></thead>
+                <tbody>
+                    @foreach (var t in data?.Tables ?? [])
+                    {
+                        <tr>
+                            <td class="mono">@t.SourceTable</td>
+                            <td class="num">@L.N(t.Events)</td>
+                            <td class="num">@Latency(t.AvgLatencyMs)</td>
+                            <td class="num">@Latency(t.P95LatencyMs)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head"><h2>@L["recent_events"]</h2></div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>@L["processed_at"]</th><th>@L["table"]</th><th>@L["operation"]</th><th>@L["key"]</th><th>@L["latency"]</th><th></th></tr></thead>
+            <tbody>
+                @if (data is not null && data.Recent.Count == 0)
+                {
+                    <tr><td colspan="6" class="empty">@L["no_events"]</td></tr>
+                }
+                @foreach (var e in data?.Recent ?? [])
+                {
+                    <tr>
+                        <td class="num small">@L.DateTimeText(e.ProcessedAt)</td>
+                        <td class="mono">@e.SourceTable</td>
+                        <td><Badges Kind="op" Value="@e.Operation" /></td>
+                        <td class="mono">@e.BusinessKey</td>
+                        <td class="num">@Latency(e.EndToEndMs)</td>
+                        <td>
+                            @if (e.SourceTable == "Students")
+                            {
+                                <a class="btn sm" href="students/@e.BusinessKey/history"><Icon Name="history" Size="14" />@L["history"]</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private CdcMonitor? data;
+    private PeriodicTimer? timer;
+    private readonly CancellationTokenSource cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        _ = Poll();
+    }
+
+    private async Task Poll()
+    {
+        try
+        {
+            while (await timer!.WaitForNextTickAsync(cts.Token)) await InvokeAsync(Load);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            data = await Api.GetAsync<CdcMonitor>("api/analytics/cdc");
+            StateHasChanged();
+        }
+        catch (ApiException)
+        {
+        }
+    }
+
+    private string Latency(double? ms)
+    {
+        if (ms is null) return "—";
+        return ms >= 1000 ? L.N(ms / 1000, 1) + (L.IsFa ? " ثانیه" : " s") : L.N(ms) + (L.IsFa ? " ms" : " ms");
+    }
+
+    public override void Dispose()
+    {
+        cts.Cancel();
+        timer?.Dispose();
+        base.Dispose();
+    }
+}

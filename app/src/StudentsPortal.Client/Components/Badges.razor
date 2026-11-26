@@ -1,0 +1,32 @@
+@inject I18n L
+
+@switch (Kind)
+{
+    case "status":
+        <span class="badge @(Value switch { "A" => "green", "G" => "violet", "W" => "orange", _ => "gray" })">@L.Status(Value)</span>
+        break;
+    case "source":
+        <span class="badge @(Value == "cdc" ? "blue" : "gray")">@L["source_" + (Value ?? "batch")]</span>
+        break;
+    case "decision":
+        <span class="badge @(Value switch { "A" => "green", "D" => "red", _ => "yellow" })">@L["decision_" + Value]</span>
+        break;
+    case "op":
+        <span class="badge @(Value switch { "c" => "green", "u" => "blue", "d" => "red", _ => "gray" })">@L["op_" + Value]</span>
+        break;
+    case "grade":
+        if (string.IsNullOrEmpty(Value))
+        {
+            <span class="badge gray">@L["no_grade"]</span>
+        }
+        else
+        {
+            <span class="badge @(Value switch { "A" or "B" => "green", "C" or "D" => "yellow", "F" => "red", _ => "gray" })">@Value</span>
+        }
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public string Kind { get; set; } = "";
+    [Parameter] public string? Value { get; set; }
+}

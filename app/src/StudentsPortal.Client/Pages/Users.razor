@@ -1,0 +1,116 @@
+@page "/users"
+@attribute [Authorize(Roles = Roles.Admin)]
+@inherits PortalPage
+
+<PageTitle>@L["users_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_account"]</div>
+        <h1>@L["users_title"]</h1>
+        <p>@L["users_subtitle"]</p>
+    </div>
+    <div class="page-actions"><button class="btn primary" @onclick="New"><Icon Name="plus" Size="15" />@L["new_user"]</button></div>
+</div>
+
+<div class="grid g-2-1">
+    <div class="card">
+        <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th>@L["username"]</th><th>@L["full_name"]</th><th>@L["role"]</th><th>@L["status"]</th><th>@L["last_login"]</th></tr></thead>
+                <tbody>
+                    @foreach (var u in users)
+                    {
+                        <tr class="clickable @(u.UserId == editingId ? "selected" : "")" @onclick="() => Edit(u)">
+                            <td class="mono">@u.Username</td>
+                            <td>@u.FirstName @u.LastName<span class="sub ltr">@u.Email</span></td>
+                            <td><span class="badge @(u.Role == Roles.Admin ? "violet" : "blue")">@L["role_" + u.Role]</span></td>
+                            <td><span class="badge @(u.IsActive ? "green" : "gray")">@(u.IsActive ? L["active"] : L["inactive"])</span></td>
+                            <td class="num small">@L.DateTimeText(u.LastLoginAt)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head"><h2>@(editingId is null ? L["new_user"] : L["edit_user"])</h2></div>
+        <div class="card-body">
+            <div class="form-grid" style="grid-template-columns: 1fr">
+                <FormField Label="@L["username"]" Error="@FieldError("username")">
+                    <input class="input ltr-input" @bind="form.Username" disabled="@(editingId is not null)" />
+                </FormField>
+                <FormField Label="@L["first_name"]" Error="@FieldError("firstName")"><input class="input" @bind="form.FirstName" /></FormField>
+                <FormField Label="@L["last_name"]" Error="@FieldError("lastName")"><input class="input" @bind="form.LastName" /></FormField>
+                <FormField Label="@L["email"]" Optional="true" Error="@FieldError("email")"><input class="input ltr-input" @bind="form.Email" /></FormField>
+                <FormField Label="@L["role"]" Error="@FieldError("role")">
+                    <select class="input" @bind="form.Role">
+                        <option value="@Roles.User">@L["role_User"]</option>
+                        <option value="@Roles.Admin">@L["role_Admin"]</option>
+                    </select>
+                </FormField>
+                <FormField Label="@L["password"]" Error="@FieldError("password")" Help="@(editingId is null ? L["password_rules"] : L["password_reset_hint"])">
+                    <input class="input ltr-input" type="password" @bind="form.Password" autocomplete="new-password" />
+                </FormField>
+                <label class="switch"><input type="checkbox" @bind="form.IsActive" />@L["active"]</label>
+            </div>
+        </div>
+        <div class="card-foot">
+            <button class="btn primary" @onclick="Save" disabled="@Busy">@L["save"]</button>
+            <button class="btn ghost" @onclick="New">@L["cancel"]</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private sealed class UserForm
+    {
+        public string Username { get; set; } = "";
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string? Email { get; set; }
+        public string Role { get; set; } = Roles.User;
+        public bool IsActive { get; set; } = true;
+        public string? Password { get; set; }
+    }
+
+    private List<UserSummary> users = [];
+    private UserForm form = new();
+    private int? editingId;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() => await RunAsync(async () => users = await Api.GetAsync<List<UserSummary>>("api/users"));
+
+    private void New()
+    {
+        editingId = null;
+        form = new UserForm();
+        Errors.Clear();
+    }
+
+    private void Edit(UserSummary u)
+    {
+        editingId = u.UserId;
+        form = new UserForm { Username = u.Username, FirstName = u.FirstName, LastName = u.LastName, Email = u.Email,
+                              Role = u.Role, IsActive = u.IsActive };
+        Errors.Clear();
+    }
+
+    private async Task Save()
+    {
+        var request = new SaveUserRequest(form.Username, form.FirstName, form.LastName, form.Email, form.Role, form.IsActive,
+                                          string.IsNullOrEmpty(form.Password) ? null : form.Password);
+        var ok = await RunAsync(async () =>
+        {
+            if (editingId is null) await Api.PostAsync<UserSummary>("api/users", request);
+            else await Api.PutAsync<UserSummary>($"api/users/{editingId}", request);
+        }, "saved");
+        if (ok)
+        {
+            New();
+            await Load();
+        }
+    }
+}

@@ -1,0 +1,18 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject Toasts ToastService
+
+@Body
+
+<div class="toasts" aria-live="polite">
+    @foreach (var toast in ToastService.Items)
+    {
+        <div class="toast @toast.Kind"><span>@toast.Message</span></div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => ToastService.Changed += Refresh;
+    private void Refresh() => InvokeAsync(StateHasChanged);
+    public void Dispose() => ToastService.Changed -= Refresh;
+}

@@ -1,0 +1,188 @@
+@page "/applicants"
+@inherits PortalPage
+@inject IJSRuntime JS
+
+<PageTitle>@L["applicants_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_operations"] / @L["nav_applicants"]</div>
+        <h1>@L["applicants_title"]</h1>
+        <p>@L["applicants_subtitle"]</p>
+    </div>
+</div>
+
+@if (!IsAdmin)
+{
+    <div class="notice" style="margin-bottom: 16px"><Icon Name="shield" />@L["read_only"]</div>
+}
+
+<div class="card" style="max-width: 1100px">
+    <div class="card-head"><h2>@(form.ApplicantId > 0 ? L.Format("editing_record", form.ApplicantId) : L["new_record"])</h2></div>
+    <fieldset disabled="@(!IsAdmin)" style="border: 0; margin: 0; padding: 0">
+        <div class="section">
+            <h3>@L["personal_info"]</h3>
+            <div class="form-grid cols-4">
+                <FormField Label="@L["first_name"]" Error="@FieldError("firstName")"><input class="input" @bind="form.FirstName" maxlength="40" /></FormField>
+                <FormField Label="@L["middle_name"]" Optional="true"><input class="input" @bind="form.MiddleName" maxlength="40" /></FormField>
+                <FormField Label="@L["last_name"]" Error="@FieldError("lastName")"><input class="input" @bind="form.LastName" maxlength="40" /></FormField>
+                <FormField Label="@L["gender"]">
+                    <select class="input" @bind="form.Gender"><option value="F">@L["gender_F"]</option><option value="M">@L["gender_M"]</option></select>
+                </FormField>
+                <FormField Label="@L["date_of_birth"]" Error="@FieldError("dateOfBirth")"><input class="input" type="date" @bind="form.DateOfBirth" /></FormField>
+                <FormField Label="@L["email"]" Error="@FieldError("email")"><input class="input ltr-input" @bind="form.Email" maxlength="80" /></FormField>
+                <FormField Label="@L["telephone"]" Error="@FieldError("telephone")"><input class="input ltr-input" @bind="form.Telephone" maxlength="20" /></FormField>
+                <FormField Label="@L["street"]" Error="@FieldError("streetAddress")"><input class="input" @bind="form.StreetAddress" maxlength="50" /></FormField>
+                <FormField Label="@L["city"]" Error="@FieldError("city")"><input class="input" @bind="form.City" maxlength="30" /></FormField>
+                <FormField Label="@L["state"]" Error="@FieldError("state")"><input class="input ltr-input" @bind="form.State" maxlength="2" /></FormField>
+                <FormField Label="@L["zip"]" Error="@FieldError("zipCode")"><input class="input ltr-input" @bind="form.ZipCode" maxlength="5" /></FormField>
+            </div>
+        </div>
+        <div class="section">
+            <h3>@L["application_info"]</h3>
+            <div class="form-grid cols-4">
+                <FormField Label="@L["received_date"]" Error="@FieldError("applicationReceivedDate")"><input class="input" type="date" @bind="form.ApplicationReceivedDate" /></FormField>
+                <FormField Label="@L["entry_term"]" Error="@FieldError("entryTerm")">
+                    <select class="input" @bind="form.EntryTerm">
+                        <option value="">@L["select_term"]</option>
+                        @foreach (var t in lookups?.Terms ?? []) { <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["application_type"]">
+                    <select class="input" @bind="form.ApplicationType">
+                        @foreach (var opt in new[] { "U", "G", "T", "I" }) { <option value="@opt">@L["type_" + opt]</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["application_status"]">
+                    <select class="input" @bind="form.ApplicationStatus">
+                        @foreach (var opt in new[] { "N", "A", "D" }) { <option value="@opt">@L["decision_" + opt]</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["hs_gpa"]" Optional="true" Error="@FieldError("gpa")"><input class="input ltr-input" type="number" step="0.01" min="0" max="4" @bind="form.Gpa" /></FormField>
+                <FormField Label="@L["sat_math"]" Optional="true" Error="@FieldError("satMathScore")"><input class="input ltr-input" type="number" min="200" max="800" @bind="form.SatMathScore" /></FormField>
+                <FormField Label="@L["sat_reading"]" Optional="true" Error="@FieldError("satReadingScore")"><input class="input ltr-input" type="number" min="200" max="800" @bind="form.SatReadingScore" /></FormField>
+                <FormField Label="@L["sat_writing"]" Optional="true" Error="@FieldError("satWritingScore")"><input class="input ltr-input" type="number" min="200" max="800" @bind="form.SatWritingScore" /></FormField>
+                <FormField Label="@L["essay"]" Optional="true"><input class="input ltr-input" type="number" @bind="form.EssayScore" /></FormField>
+                <FormField Label="@L["admission_points"]" Optional="true"><input class="input ltr-input" type="number" step="0.01" @bind="form.AdmissionPoints" /></FormField>
+            </div>
+        </div>
+    </fieldset>
+    @if (IsAdmin)
+    {
+        <div class="card-foot">
+            <button class="btn success" @onclick="Insert" disabled="@(Busy || form.ApplicantId > 0)">@L["insert"]</button>
+            <button class="btn warning" @onclick="Update" disabled="@(Busy || form.ApplicantId == 0)">@L["update"]</button>
+            <button class="btn danger" @onclick="Delete" disabled="@(Busy || form.ApplicantId == 0)">@L["delete"]</button>
+            <button class="btn ghost" @onclick="Clear">@L["clear"]</button>
+        </div>
+    }
+</div>
+
+<h2 style="margin: 26px 0 10px">@L["applicant_records"]</h2>
+<div class="card">
+    <div class="card-body" style="padding-top: 16px">
+        <div class="filters f3">
+            <FormField Label="@L["search"]"><input class="input" @bind="search" @onkeydown="SearchOnEnter" placeholder="@L["search_applicants"]" /></FormField>
+            <FormField Label="@L["application_status"]">
+                <select class="input" @bind="status">
+                    <option value="">@L["all"]</option>
+                    @foreach (var opt in new[] { "N", "A", "D" }) { <option value="@opt">@L["decision_" + opt]</option> }
+                </select>
+            </FormField>
+            <FormField Label="@L["entry_term"]">
+                <select class="input" @bind="term">
+                    <option value="">@L["all_terms"]</option>
+                    @foreach (var t in lookups?.Terms ?? []) { <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option> }
+                </select>
+            </FormField>
+            <div class="filter-actions">
+                <button class="btn primary" @onclick="() => Load(1)">@L["search"]</button>
+                <button class="btn" @onclick="ClearSearch">@L["clear"]</button>
+            </div>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>@L["id"]</th><th>@L["full_name"]</th><th>@L["application_type"]</th><th>@L["entry_term"]</th><th>@L["hs_gpa"]</th><th>SAT</th><th>@L["application_status"]</th></tr></thead>
+            <tbody>
+                @if (page is not null && page.Items.Count == 0)
+                {
+                    <tr><td colspan="7" class="empty">@L["no_records"]</td></tr>
+                }
+                @foreach (var a in page?.Items ?? [])
+                {
+                    <tr class="clickable @(a.ApplicantId == form.ApplicantId ? "selected" : "")" @onclick="() => Select(a)">
+                        <td class="id num">@L.Digits(a.ApplicantId.ToString())</td>
+                        <td>@a.FirstName @a.LastName<span class="sub ltr">@a.Email</span></td>
+                        <td class="small">@L["type_" + a.ApplicationType]</td>
+                        <td class="small">@L.Digits(a.EntryTerm)</td>
+                        <td class="num">@L.N((double?)a.Gpa, 2)</td>
+                        <td class="num">@L.N(Sat(a))</td>
+                        <td><Badges Kind="decision" Value="@a.ApplicationStatus" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (page is not null) { <Pager Page="page.Page" Pages="page.Pages" Total="page.Total" OnPage="Load" /> }
+</div>
+
+@code {
+    private ApplicantDto form = New();
+    private PagedResult<ApplicantDto>? page;
+    private Lookups? lookups;
+    private string search = "", status = "", term = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RunAsync(async () => lookups = await LookupsAsync());
+        await Load(1);
+    }
+
+    private static ApplicantDto New() => new() { ApplicationReceivedDate = DateTime.Today };
+
+    private async Task Load(int pageNumber)
+        => await RunAsync(async () => page = await Api.GetAsync<PagedResult<ApplicantDto>>(ApiClient.Query("api/applicants",
+               ("search", search), ("status", status), ("term", term), ("page", pageNumber))));
+
+    private async Task SearchOnEnter(KeyboardEventArgs e) { if (e.Key == "Enter") await Load(1); }
+
+    private async Task ClearSearch() { search = status = term = ""; await Load(1); }
+
+    private async Task Select(ApplicantDto a)
+    {
+        await RunAsync(async () => form = await Api.GetAsync<ApplicantDto>($"api/applicants/{a.ApplicantId}"));
+    }
+
+    private void Clear() { form = New(); Errors.Clear(); }
+
+    private async Task Insert()
+    {
+        SavedId? saved = null;
+        if (await RunAsync(async () => saved = await Api.PostAsync<SavedId>("api/applicants", form), "saved_cdc"))
+        {
+            form.ApplicantId = saved!.Id;
+            await Load(1);
+        }
+    }
+
+    private async Task Update()
+    {
+        if (await RunAsync(() => Api.PutAsync<SavedId>($"api/applicants/{form.ApplicantId}", form), "saved_cdc"))
+            await Load(page?.Page ?? 1);
+    }
+
+    private async Task Delete()
+    {
+        if (!await JS.InvokeAsync<bool>("portal.confirm", L.Format("confirm_delete", form.ApplicantId))) return;
+        if (await RunAsync(() => Api.DeleteAsync($"api/applicants/{form.ApplicantId}"), "deleted"))
+        {
+            Clear();
+            await Load(page?.Page ?? 1);
+        }
+    }
+
+    private static double? Sat(ApplicantDto a)
+        => a.SatMathScore is null || a.SatReadingScore is null || a.SatWritingScore is null
+            ? null : a.SatMathScore + a.SatReadingScore + a.SatWritingScore;
+}

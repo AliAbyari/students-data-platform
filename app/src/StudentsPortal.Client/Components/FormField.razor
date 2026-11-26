@@ -1,0 +1,23 @@
+@inject I18n L
+
+<div class="field @(Wide ? "wide" : "")">
+    <label>@Label@if (Optional){<span class="opt">@L["optional"]</span>}</label>
+    @ChildContent
+    @if (!string.IsNullOrEmpty(Error))
+    {
+        <span class="error">@Error</span>
+    }
+    else if (!string.IsNullOrEmpty(Help))
+    {
+        <span class="help">@Help</span>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public string? Help { get; set; }
+    [Parameter] public bool Optional { get; set; }
+    [Parameter] public bool Wide { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

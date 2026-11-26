@@ -1,0 +1,33 @@
+@inject I18n L
+
+@if (Items.Count == 0)
+{
+    <div class="empty small">@L["no_records"]</div>
+}
+else
+{
+    var max = Scale ?? Items.Max(i => i.Value);
+    <div class="hbars">
+        @foreach (var item in Items)
+        {
+            <div class="hbar-row">
+                <div class="meta">
+                    <span title="@L.Pick(item.Label, item.LabelFa)">@L.Pick(item.Label, item.LabelFa)</span>
+                    <b>@(Percent ? L.Pct(item.Value) : L.N(item.Value, Decimals))</b>
+                </div>
+                <div class="track @Color"><span style="width: @Width(item.Value, max)"></span></div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<LabelValue> Items { get; set; } = [];
+    [Parameter] public int Decimals { get; set; }
+    [Parameter] public bool Percent { get; set; }
+    [Parameter] public double? Scale { get; set; }
+    [Parameter] public string? Color { get; set; }
+
+    private static string Width(double value, double max)
+        => (max <= 0 ? 0 : Math.Clamp(100 * value / max, 0, 100)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "%";
+}

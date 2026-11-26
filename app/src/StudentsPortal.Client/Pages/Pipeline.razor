@@ -1,0 +1,131 @@
+@page "/pipeline"
+@inherits PortalPage
+
+<PageTitle>@L["pipeline_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_platform"]</div>
+        <h1>@L["pipeline_title"]</h1>
+        <p>@L["pipeline_subtitle"]</p>
+    </div>
+    <div class="page-actions"><button class="btn" @onclick="Load"><Icon Name="refresh" Size="15" />@L["refresh"]</button></div>
+</div>
+
+<div class="grid g-2-1">
+    <div class="card">
+        <div class="card-head"><h2>@L["architecture"]</h2></div>
+        <div class="card-body flow">
+            <div>
+                <div class="flow-title">@L["path_batch"]</div>
+                <div class="flow-row">
+                    <span class="node src">SQL Server</span><span class="arrow">→</span>
+                    <span class="node">Airflow + Spark</span><span class="arrow">→</span>
+                    <span class="node">PostgreSQL staging</span><span class="arrow">→</span>
+                    <span class="node">Spark SCD1 / SCD2</span><span class="arrow">→</span>
+                    <span class="node dw">ClickHouse DW</span>
+                </div>
+            </div>
+            <div>
+                <div class="flow-title">@L["path_stream"]</div>
+                <div class="flow-row">
+                    <span class="node src">SQL Server CDC</span><span class="arrow">→</span>
+                    <span class="node">Debezium</span><span class="arrow">→</span>
+                    <span class="node">Kafka</span><span class="arrow">→</span>
+                    <span class="node">Spark Streaming</span><span class="arrow">→</span>
+                    <span class="node dw">ClickHouse DW</span>
+                </div>
+            </div>
+            <div>
+                <div class="flow-title">@L["nav_analytics"]</div>
+                <div class="flow-row">
+                    <span class="node dw">ClickHouse (v_* / rpt_*)</span><span class="arrow">→</span>
+                    <span class="node ui">Grafana</span><span class="node ui">Blazor PWA</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2>@L["tools"]</h2></div>
+        <div class="card-body" style="display: grid; gap: 8px">
+            @if (status is not null)
+            {
+                <a class="btn" target="_blank" rel="noopener" href="@status.Links.GetValueOrDefault("Airflow")"><Icon Name="external" Size="15" />@L["open_airflow"]</a>
+                <a class="btn" target="_blank" rel="noopener" href="@status.Links.GetValueOrDefault("Grafana")"><Icon Name="external" Size="15" />@L["open_grafana"]</a>
+                <a class="btn" target="_blank" rel="noopener" href="@status.Links.GetValueOrDefault("KafkaUi")"><Icon Name="external" Size="15" />@L["open_kafka"]</a>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head"><h2>@L["runs"]</h2></div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>@L["batch"]</th><th>@L["status"]</th><th>@L["started"]</th><th>@L["duration"]</th><th>@L["rows"]</th><th>@L["steps"]</th></tr></thead>
+            <tbody>
+                @if (status is not null && status.Runs.Count == 0)
+                {
+                    <tr><td colspan="6" class="empty">@L["no_runs"]</td></tr>
+                }
+                @foreach (var run in status?.Runs ?? [])
+                {
+                    <tr>
+                        <td class="id num">#@L.Digits(run.BatchId.ToString())<span class="sub mono">@run.Pipeline</span></td>
+                        <td><span class="badge @(run.HasFailure ? "red" : "green")">@(run.HasFailure ? L["failed"] : L["success"])</span></td>
+                        <td class="num small">@L.DateTimeText(run.StartedAt)</td>
+                        <td class="num">@Duration(run.FinishedAt - run.StartedAt)</td>
+                        <td class="num">@L.N(run.RowsWritten)</td>
+                        <td>
+                            <div class="steps">
+                                @foreach (var step in run.Steps)
+                                {
+                                    <span class="step @(step.Status == "failed" ? "failed" : "")" title="@L.N(step.RowsWritten) · @Duration(TimeSpan.FromMilliseconds(step.DurationMs))">@step.Step</span>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head"><h2>@L["quality"]</h2></div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>@L["rule"]</th><th>@L["table"]</th><th>@L["severity"]</th><th>@L["failed_rows"]</th><th>@L["status"]</th><th>@L["details"]</th></tr></thead>
+            <tbody>
+                @if (status is not null && status.Quality.Count == 0)
+                {
+                    <tr><td colspan="6" class="empty">@L["no_records"]</td></tr>
+                }
+                @foreach (var q in status?.Quality ?? [])
+                {
+                    <tr>
+                        <td class="mono">@q.RuleName</td>
+                        <td class="mono small">@q.TableName</td>
+                        <td><span class="badge @(q.Severity == "error" ? "red" : "yellow")">@L["severity_" + q.Severity]</span></td>
+                        <td class="num">@L.N(q.FailedRows)</td>
+                        <td><span class="badge @(q.Passed ? "green" : "orange")">@(q.Passed ? L["passed"] : L["failed"])</span></td>
+                        <td class="mono small muted" style="max-width: 420px; white-space: normal">@q.Details</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private PipelineStatus? status;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() => await RunAsync(async () => status = await Api.GetAsync<PipelineStatus>("api/analytics/pipeline"));
+
+    private string Duration(TimeSpan span)
+        => span.TotalMinutes >= 1
+            ? L.Digits($"{(int)span.TotalMinutes}m {span.Seconds}s")
+            : L.Digits($"{span.TotalSeconds:0.0}s");
+}

@@ -1,0 +1,192 @@
+@page "/students/{Id:int}/history"
+@inherits PortalPage
+
+<PageTitle>@L["history_title"] #@Id · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb"><a href="students">@L["nav_students"]</a> / @L["history"]</div>
+        <h1>@L["history_title"] <span class="muted num">#@L.Digits(Id.ToString())</span></h1>
+        <p>@L["history_subtitle"]</p>
+    </div>
+    <div class="page-actions">
+        <label class="switch"><input type="checkbox" checked="@autoRefresh" @onchange="ToggleAuto" />@L["auto_refresh"]</label>
+        <button class="btn" @onclick="Load"><Icon Name="refresh" Size="15" />@L["refresh"]</button>
+        <a class="btn" href="students">@L["back_to_students"]</a>
+    </div>
+</div>
+
+@if (insight is not null)
+{
+    <div class="grid g-4">
+        <div class="card kpi blue"><div class="kpi-label">@L["scd_versions"]</div><div class="kpi-value">@L.N(insight.Versions.Count)</div><div class="kpi-sub">dim_student</div></div>
+        <div class="card kpi violet"><div class="kpi-label">@L["enrollments_count"]</div><div class="kpi-value">@L.N(insight.Enrollments)</div><div class="kpi-sub">fact_enrollment</div></div>
+        <div class="card kpi green"><div class="kpi-label">@L["credits_earned"]</div><div class="kpi-value">@L.N(insight.CreditsEarned, 1)</div></div>
+        <div class="card kpi orange"><div class="kpi-label">@L["cumulative_gpa"]</div><div class="kpi-value">@L.N(insight.CumulativeGpa, 2)</div><div class="kpi-sub">Σ QP ÷ Σ GPA credits</div></div>
+    </div>
+}
+
+<div class="grid g-2-1">
+    <div class="card">
+        <div class="card-head"><h2>@L["scd_versions"]</h2></div>
+        <div class="card-body">
+            @if (insight is null)
+            {
+                <div class="skeleton"></div>
+            }
+            else if (insight.Versions.Count == 0)
+            {
+                <div class="notice warn"><Icon Name="info" />@L["not_in_warehouse"]</div>
+            }
+            else
+            {
+                <div class="timeline">
+                    @for (var i = insight.Versions.Count - 1; i >= 0; i--)
+                    {
+                        var v = insight.Versions[i];
+                        var previous = i > 0 ? insight.Versions[i - 1] : null;
+                        <div class="version @(v.IsCurrent == 1 && v.IsDeleted == 0 ? "current" : "") @(v.IsDeleted == 1 ? "deleted" : "")">
+                            <div class="version-head">
+                                <b>@L["version"] @L.N(i + 1)</b>
+                                @if (v.IsDeleted == 1) { <span class="badge red">@L["deleted_flag"]</span> }
+                                else if (v.IsCurrent == 1) { <span class="badge green">@L["current"]</span> }
+                                else { <span class="badge gray">@L["expired"]</span> }
+                                <span class="badge blue">@L["reason_" + v.ChangeReason]</span>
+                                <Badges Kind="source" Value="@v.ChangeSource" />
+                                <span class="muted small" style="margin-inline-start: auto">@L["surrogate_key"]: <span class="mono">@v.StudentKey</span></span>
+                            </div>
+                            <div class="version-grid">
+                                <div><span>@L["full_name"]</span><b class="@Changed(previous?.FullName, v.FullName)">@v.FullName</b></div>
+                                <div><span>@L["city"] / @L["state"]</span><b class="@Changed(previous?.City + previous?.StateCode, v.City + v.StateCode)">@v.City, @v.StateCode</b></div>
+                                <div><span>@L["degree"]</span><b class="@Changed(previous?.DegreeName, v.DegreeName)">@v.DegreeName</b></div>
+                                <div><span>@L["class_standing"]</span><b class="@Changed(previous?.ClassStandingName, v.ClassStandingName)">@v.ClassStandingName</b></div>
+                                <div><span>@L["student_status"]</span><b class="@Changed(previous?.StudentStatusCode, v.StudentStatusCode)">@L.Pick(v.StudentStatusName, v.StudentStatusNameFa)</b></div>
+                                <div><span>@L["email"]</span><b class="ltr @Changed(previous?.Email, v.Email)">@v.Email</b></div>
+                                <div><span>@L["valid_from"]</span><b class="num">@L.DateTimeText(v.ValidFrom)</b></div>
+                                <div><span>@L["valid_to"]</span><b class="num">@L.DateTimeText(v.ValidTo)</b></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div>
+        <div class="card">
+            <div class="card-head"><h2>@L["operational_record"]</h2></div>
+            <div class="card-body">
+                @if (source is null)
+                {
+                    <div class="muted small">@L["not_found_text"]</div>
+                }
+                else
+                {
+                    <div class="version-grid" style="grid-template-columns: 1fr 1fr">
+                        <div><span>@L["full_name"]</span><b>@source.FirstName @source.LastName</b></div>
+                        <div><span>@L["student_status"]</span><Badges Kind="status" Value="@source.StudentStatus" /></div>
+                        <div><span>@L["city"]</span><b>@source.City, @source.State</b></div>
+                        <div><span>@L["degree"]</span><b>@source.DegreeName</b></div>
+                        <div><span>@L["date_of_birth"]</span><b class="num">@L.Date(source.DateOfBirth)</b></div>
+                        <div><span>@L["enrollment_term"]</span><b>@source.EnrollmentTerm</b></div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>@L["transcript"]</h2></div>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead><tr><th>@L["term"]</th><th>@L["courses"]</th><th>@L["credits_earned"]</th><th>@L["gpa"]</th></tr></thead>
+                    <tbody>
+                        @if (insight is not null && insight.Terms.Count == 0)
+                        {
+                            <tr><td colspan="4" class="empty">@L["no_records"]</td></tr>
+                        }
+                        @foreach (var t in insight?.Terms ?? [])
+                        {
+                            <tr>
+                                <td>@L.Pick(t.TermName, t.TermNameFa)</td>
+                                <td class="num">@L.N(t.Courses)</td>
+                                <td class="num">@L.N(t.Credits, 1)</td>
+                                <td class="num"><b>@L.N(t.Gpa, 2)</b></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private StudentInsight? insight;
+    private StudentDto? source;
+    private bool autoRefresh = true;
+    private PeriodicTimer? timer;
+    private CancellationTokenSource? cts;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Load();
+        StartTimer();
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            var analytics = Api.GetAsync<StudentInsight>($"api/analytics/students/{Id}");
+            try { source = await Api.GetAsync<StudentDto>($"api/students/{Id}"); }
+            catch (ApiException) { source = null; }
+            insight = await analytics;
+        }
+        catch (ApiException ex)
+        {
+            Toasts.Error(L.Error(ex.Code));
+        }
+        StateHasChanged();
+    }
+
+    private void StartTimer()
+    {
+        StopTimer();
+        if (!autoRefresh) return;
+        cts = new CancellationTokenSource();
+        timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
+        _ = Poll(timer, cts.Token);
+    }
+
+    private async Task Poll(PeriodicTimer t, CancellationToken token)
+    {
+        try
+        {
+            while (await t.WaitForNextTickAsync(token)) await InvokeAsync(Load);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void StopTimer()
+    {
+        cts?.Cancel();
+        timer?.Dispose();
+        timer = null;
+    }
+
+    private void ToggleAuto(ChangeEventArgs e)
+    {
+        autoRefresh = e.Value is true;
+        StartTimer();
+    }
+
+    private static string Changed(string? before, string? after) => before is not null && before != after ? "changed" : "";
+
+    public override void Dispose()
+    {
+        StopTimer();
+        base.Dispose();
+    }
+}

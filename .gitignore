@@ -1,0 +1,10 @@
+.env
+data/*.bak
+data/*.rar
+**/bin/
+**/obj/
+**/__pycache__/
+.pytest_cache/
+*.user
+.vs/
+.idea/

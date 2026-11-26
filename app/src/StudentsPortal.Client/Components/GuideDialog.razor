@@ -1,0 +1,83 @@
+@inject I18n L
+@inject IJSRuntime JS
+
+@if (Open)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="guide-title" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <img src="icon-192.png" alt="" />
+                <div>
+                    <h2 id="guide-title">@L["guide_title"]</h2>
+                    <div class="muted small">@L["app_name"]</div>
+                </div>
+                <button class="btn sm ghost icon-only close" @onclick="Close" aria-label="@L["guide_key_close"]">✕</button>
+            </div>
+            <div class="modal-body">
+                <p>@L["guide_intro"]</p>
+                <div class="guide-grid">
+                    <div class="guide-block">
+                        <h3><Icon Name="dashboard" Size="17" />@L["guide_sec_analytics"]</h3>
+                        <ul>
+                            <li><b>@L["nav_dashboard"]</b> — @L["guide_dashboard"]</li>
+                            <li><b>@L["nav_live"]</b> — @L["guide_live"]</li>
+                            <li><b>@L["nav_pipeline"]</b> — @L["guide_pipeline"]</li>
+                        </ul>
+                    </div>
+                    <div class="guide-block">
+                        <h3><Icon Name="students" Size="17" />@L["guide_sec_operations"]</h3>
+                        <ul>
+                            <li><b>@L["nav_students"] · @L["nav_applicants"] · @L["nav_offerings"] · @L["nav_enrollments"]</b> — @L["guide_crud"]</li>
+                            <li><b>@L["history"]</b> — @L["guide_history"]</li>
+                        </ul>
+                    </div>
+                    <div class="guide-block">
+                        <h3><Icon Name="bolt" Size="17" />@L["guide_sec_try"]</h3>
+                        <ol>
+                            <li>@L["guide_try_1"]</li>
+                            <li>@L["guide_try_2"]</li>
+                            <li>@L["guide_try_3"]</li>
+                        </ol>
+                    </div>
+                    <div class="guide-block">
+                        <h3><Icon Name="keyboard" Size="17" />@L["guide_sec_keys"]</h3>
+                        <div class="guide-keys">
+                            <div><kbd>?</kbd> @L["or"] <kbd>F1</kbd> — @L["guide_key_open"]</div>
+                            <div><kbd>Esc</kbd> — @L["guide_key_close"]</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <label class="check-label">
+                    <input type="checkbox" checked="@hideAfterSignIn" @onchange="ToggleHide" />
+                    @L["guide_dont_show"]
+                </label>
+                <button class="btn primary" @onclick="Close">@L["guide_got_it"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public const string HideKey = "sp.guide.hide";
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool hideAfterSignIn;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open) hideAfterSignIn = await JS.InvokeAsync<string?>("portal.storage.get", HideKey) == "1";
+    }
+
+    private async Task ToggleHide(ChangeEventArgs e)
+    {
+        hideAfterSignIn = e.Value is true;
+        if (hideAfterSignIn) await JS.InvokeVoidAsync("portal.storage.set", HideKey, "1");
+        else await JS.InvokeVoidAsync("portal.storage.remove", HideKey);
+    }
+
+    private Task Close() => OnClose.InvokeAsync();
+}

@@ -1,0 +1,193 @@
+@page "/"
+@inherits PortalPage
+
+<PageTitle>@L["dashboard_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>@L["dashboard_title"]</h1>
+        <p>@L["dashboard_subtitle"]</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn" href="applicants"><Icon Name="applicants" Size="16" />@L["view_applicants"]</a>
+        @if (IsAdmin)
+        {
+            <a class="btn primary" href="students"><Icon Name="plus" Size="16" />@L["add_student"]</a>
+        }
+    </div>
+</div>
+
+@if (data is not null)
+{
+    var f = data.Freshness;
+    <div class="strip">
+        <span class="chip"><Icon Name="pipeline" Size="15" />@L["fresh_batch"]: <b>@L.Ago(f.LastBatchAt)</b>
+            @if (f.LastBatchId is long id) { <span class="muted">#@L.N(id)</span> }</span>
+        <span class="chip"><span class="live-dot @(f.LastCdcAt is null ? "idle" : "")"></span>@L["fresh_cdc"]: <b>@L.Ago(f.LastCdcAt)</b></span>
+        <span class="chip"><Icon Name="bolt" Size="15" />@L["fresh_today"]: <b>@L.N(f.CdcEventsToday)</b></span>
+    </div>
+}
+
+<div class="card">
+    <div class="card-body" style="padding-top: 16px">
+        <div class="filters f2">
+            <FormField Label="@L["degree"]">
+                <select class="input" @bind="degree" @bind:after="Load">
+                    <option value="">@L["all_degrees"]</option>
+                    @foreach (var d in lookups?.Degrees ?? [])
+                    {
+                        <option value="@d.Value">@d.Label</option>
+                    }
+                </select>
+            </FormField>
+            <FormField Label="@L["entry_term"]">
+                <select class="input" @bind="term" @bind:after="Load">
+                    <option value="">@L["all_terms"]</option>
+                    @foreach (var t in lookups?.Terms ?? [])
+                    {
+                        <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option>
+                    }
+                </select>
+            </FormField>
+            <div class="filter-actions">
+                <button class="btn" @onclick="ClearFilters" disabled="@(degree == "" && term == "")">@L["clear_filters"]</button>
+                <button class="btn ghost" @onclick="Load" title="@L["refresh"]"><Icon Name="refresh" Size="16" /></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (data is null)
+{
+    <div class="grid g-4">
+        @for (var i = 0; i < 4; i++) { <div class="card kpi"><div class="skeleton" style="height: 58px"></div></div> }
+    </div>
+    <div class="grid g-2-1"><div class="card"><div class="card-body"><div class="skeleton"></div></div></div><div class="card"><div class="card-body"><div class="skeleton"></div></div></div></div>
+}
+else
+{
+    var k = data.Kpis;
+    @if (k.Total == 0)
+    {
+        <div class="notice warn" style="margin-top: 16px"><Icon Name="info" />@L["warehouse_empty"]</div>
+    }
+    <div class="grid g-4">
+        <div class="card kpi blue"><div class="kpi-label">@L["kpi_total"]</div><div class="kpi-value">@L.N(k.Total)</div><div class="kpi-sub">dim_student · SCD2</div></div>
+        <div class="card kpi green"><div class="kpi-label">@L["kpi_active"]</div><div class="kpi-value">@L.N(k.Active)</div><div class="kpi-sub">@L.Format("of_total", L.Pct(Share(k.Active)))</div></div>
+        <div class="card kpi violet"><div class="kpi-label">@L["kpi_graduated"]</div><div class="kpi-value">@L.N(k.Graduated)</div><div class="kpi-sub">@L.Format("of_total", L.Pct(Share(k.Graduated)))</div></div>
+        <div class="card kpi orange"><div class="kpi-label">@L["kpi_withdrawn"]</div><div class="kpi-value">@L.N(k.Withdrawn)</div><div class="kpi-sub">@L.Format("of_total", L.Pct(Share(k.Withdrawn)))</div></div>
+    </div>
+
+    <div class="grid g-2-1">
+        <div class="card">
+            <div class="card-head"><div><h2>@L["chart_cohort"]</h2><div class="hint">@L["chart_cohort_hint"]</div></div></div>
+            <div class="card-body"><BarChart Items="data.CohortSizes" Title="@L["chart_cohort"]" /></div>
+        </div>
+        <div class="card">
+            <div class="card-head"><h2>@L["chart_status"]</h2></div>
+            <div class="card-body">
+                <DonutChart CenterLabel="@L["students_unit"]" Segments="@StatusSegments(k)" />
+            </div>
+        </div>
+    </div>
+
+    <div class="grid g-2-1">
+        <div class="card">
+            <div class="card-head"><div><h2>@L["chart_term"]</h2><div class="hint">@L["chart_term_hint"]</div></div></div>
+            <div class="card-body"><BarChart Items="data.EnrollmentByTerm" Title="@L["chart_term"]" /></div>
+        </div>
+        <div class="card">
+            <div class="card-head"><h2>@L["chart_grades"]</h2></div>
+            <div class="card-body"><DonutChart CenterLabel="@L["enrollments_unit"]" Segments="@GradeSegments()" /></div>
+        </div>
+    </div>
+
+    <div class="grid g-2">
+        <div class="card">
+            <div class="card-head"><div><h2>@L["chart_gpa"]</h2><div class="hint">@L["chart_gpa_hint"]</div></div></div>
+            <div class="card-body"><HBarList Items="data.GpaByDepartment" Decimals="2" Scale="4" Color="green" /></div>
+        </div>
+        <div class="card">
+            <div class="card-head"><div><h2>@L["chart_fill"]</h2><div class="hint">@L["chart_fill_hint"]</div></div></div>
+            <div class="card-body"><HBarList Items="data.FillRateByDepartment" Percent="true" Scale="100" Color="violet" /></div>
+        </div>
+    </div>
+
+    <div class="grid g-2-1">
+        <div class="card">
+            <div class="card-head"><h2>@L["chart_admissions"]</h2></div>
+            <div class="card-body">
+                <BarChart Items="data.AdmissionsByYear" Paired="true" SeriesA="@L["applications"]" SeriesB="@L["admitted"]" />
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-head"><h2>@L["chart_degrees"]</h2></div>
+            <div class="card-body"><HBarList Items="data.TopDegrees" /></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head">
+            <div><h2>@L["recent_changes"]</h2><div class="hint">@L["recent_changes_hint"]</div></div>
+            <a class="btn sm" href="students">@L["view_all"]</a>
+        </div>
+        <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th>@L["student"]</th><th>@L["degree"]</th><th>@L["status"]</th><th>@L["source"]</th></tr></thead>
+                <tbody>
+                    @foreach (var s in data.RecentStudents)
+                    {
+                        <tr class="clickable" @onclick='() => Nav.NavigateTo($"students/{s.StudentId}/history")'>
+                            <td><span class="id">@s.FullName</span><span class="sub">@L["id"] @L.Digits(s.StudentId.ToString())</span></td>
+                            <td class="small">@s.DegreeName</td>
+                            <td><Badges Kind="status" Value="@s.StudentStatusCode" /></td>
+                            <td><Badges Kind="source" Value="@s.ChangeSource" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private Overview? data;
+    private Lookups? lookups;
+    private string degree = "";
+    private string term = "";
+
+    private static readonly string[] GradePalette =
+        ["var(--success)", "#5fd0a8", "var(--warning)", "var(--orange)", "var(--danger)", "var(--muted)", "var(--violet)", "var(--cyan)"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RunAsync(async () => lookups = await LookupsAsync());
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        await RunAsync(async () => data = await Api.GetAsync<Overview>(
+            ApiClient.Query("api/analytics/overview", ("degree", degree), ("term", term))));
+    }
+
+    private async Task ClearFilters()
+    {
+        degree = term = "";
+        await Load();
+    }
+
+    private double Share(long part) => data is null || data.Kpis.Total == 0 ? 0 : 100.0 * part / data.Kpis.Total;
+
+    private IReadOnlyList<DonutChart.Segment> StatusSegments(Kpis k) =>
+    [
+        new(L["status_active"], k.Active, "var(--success)"),
+        new(L["status_graduated"], k.Graduated, "var(--violet)"),
+        new(L["status_withdrawn"], k.Withdrawn, "var(--orange)"),
+    ];
+
+    private IReadOnlyList<DonutChart.Segment> GradeSegments()
+        => data!.GradeDistribution.Select((g, i) => new DonutChart.Segment(
+               g.Label == "NG" ? L["no_grade"] : L.IsFa && !string.IsNullOrEmpty(g.LabelFa) ? $"{g.Label} · {g.LabelFa}" : g.Label, g.Value,
+               GradePalette[i % GradePalette.Length])).ToList();
+}

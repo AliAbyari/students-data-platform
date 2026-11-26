@@ -1,0 +1,432 @@
+name: students-platform
+
+x-airflow-env: &airflow-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Tehran
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+  AIRFLOW__WEBSERVER__WORKERS: "2"
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+  BATCH_SCHEDULE: ${BATCH_SCHEDULE}
+  SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY}
+  <<: &platform-env
+    MSSQL_HOST: mssql
+    MSSQL_PORT: "1433"
+    MSSQL_DATABASE: Students
+    ETL_SQL_USER: ${ETL_SQL_USER}
+    ETL_SQL_PASSWORD: ${ETL_SQL_PASSWORD}
+    PG_HOST: postgres
+    PG_PORT: "5432"
+    PG_DATABASE: ${POSTGRES_DB}
+    PG_USER: ${POSTGRES_USER}
+    PG_PASSWORD: ${POSTGRES_PASSWORD}
+    CH_HOST: clickhouse
+    CH_HTTP_PORT: "8123"
+    CH_DATABASE: ${CLICKHOUSE_DB}
+    CH_USER: ${CLICKHOUSE_USER}
+    CH_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    PYTHONPATH: /opt/pipelines/spark/lib
+
+x-spark-image: &spark-image
+  build:
+    context: ./pipelines
+    dockerfile: airflow/Dockerfile
+    args:
+      DOCKERHUB_MIRROR: ${DOCKERHUB_MIRROR:-docker.io}
+  image: students-platform/airflow-spark:2.10.5
+
+x-airflow-common: &airflow-common
+  <<: *spark-image
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: *airflow-env
+  volumes:
+    - ./pipelines/airflow/dags:/opt/airflow/dags:ro
+    - ./pipelines/spark:/opt/pipelines/spark:ro
+    - airflow-logs:/opt/airflow/logs
+  depends_on: &airflow-depends
+    postgres:
+      condition: service_healthy
+    clickhouse-init:
+      condition: service_completed_successfully
+    mssql-init:
+      condition: service_completed_successfully
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    hostname: mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_AGENT_ENABLED: "true"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_MEMORY_LIMIT_MB: ${MSSQL_MEMORY_LIMIT_MB}
+      TZ: Asia/Tehran
+    ports: ["${PORT_SQLSERVER}:1433"]
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./data:/backup:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -l 5 -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    entrypoint: ["/bin/bash", "/init/init.sh"]
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      ETL_SQL_USER: ${ETL_SQL_USER}
+      ETL_SQL_PASSWORD: ${ETL_SQL_PASSWORD}
+      APP_SQL_USER: ${APP_SQL_USER}
+      APP_SQL_PASSWORD: ${APP_SQL_PASSWORD}
+    volumes:
+      - ./infra/sqlserver:/init:ro
+      - ./data:/backup:ro
+    depends_on:
+      mssql:
+        condition: service_healthy
+    restart: "no"
+
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Tehran
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=120"]
+    ports: ["${PORT_POSTGRES}:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  clickhouse:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      TZ: Asia/Tehran
+    ports: ["${PORT_CLICKHOUSE_HTTP}:8123"]
+    volumes:
+      - ch-data:/var/lib/clickhouse
+      - ./infra/clickhouse/config/low_footprint.xml:/etc/clickhouse-server/config.d/low_footprint.xml:ro
+      - ./infra/clickhouse/config/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  clickhouse-init:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/clickhouse/clickhouse-server:24.8
+    entrypoint: ["/bin/bash", "/init/apply.sh"]
+    environment:
+      CH_HOST: clickhouse
+      CH_USER: ${CLICKHOUSE_USER}
+      CH_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CH_DATABASE: ${CLICKHOUSE_DB}
+    volumes:
+      - ./infra/clickhouse:/init:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+
+  kafka:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/apache/kafka:3.9.1
+    hostname: kafka
+    environment:
+      
+      CLUSTER_ID: vVWLFnyhS5yiCFKdTwomvA
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  connect:
+    image: quay.io/debezium/connect:2.7.3.Final
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: students-connect
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      HEAP_OPTS: -Xmx512m -Xms256m
+    ports: ["${PORT_CONNECT}:8083"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mssql-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8083/connector-plugins >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  connect-register:
+    image: quay.io/curl/curl:8.11.1
+    entrypoint: ["/bin/sh", "/debezium/register.sh"]
+    environment:
+      CONNECT_URL: http://connect:8083
+      ETL_SQL_USER: ${ETL_SQL_USER}
+      ETL_SQL_PASSWORD: ${ETL_SQL_PASSWORD}
+    volumes:
+      - ./infra/debezium:/debezium:ro
+    depends_on:
+      connect:
+        condition: service_healthy
+    restart: "no"
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.1.0
+    environment:
+      KAFKA_CLUSTERS_0_NAME: students-platform
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://connect:8083
+      JAVA_OPTS: -Xmx256m
+    ports: ["${PORT_KAFKA_UI}:8080"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  spark-streaming:
+    <<: *spark-image
+    entrypoint: ["spark-submit"]
+    command: ["--master", "local[2]", "--driver-memory", "1g", "--conf", "spark.sql.session.timeZone=UTC",
+              "/opt/pipelines/spark/jobs/stream_cdc.py"]
+    environment:
+      <<: *platform-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CDC_TOPIC_PATTERN: students\.Students\.dbo\..*
+      STREAM_TRIGGER_SECONDS: ${STREAM_TRIGGER_SECONDS}
+      CHECKPOINT_DIR: /checkpoints/cdc
+    volumes:
+      - ./pipelines/spark:/opt/pipelines/spark:ro
+      - spark-checkpoints:/checkpoints
+    depends_on:
+      connect-register:
+        condition: service_completed_successfully
+      clickhouse-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports: ["${PORT_AIRFLOW}:8080"]
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/health >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 40s
+    restart: unless-stopped
+
+  grafana:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: https://github.com/grafana/clickhouse-datasource/releases/download/v4.5.1/grafana-clickhouse-datasource-4.5.1.linux_amd64.zip;grafana-clickhouse-datasource
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_USERS_DEFAULT_THEME: dark
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/dw-overview.json
+      CH_USER: ${CLICKHOUSE_USER}
+      CH_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CH_DATABASE: ${CLICKHOUSE_DB}
+    ports: ["${PORT_GRAFANA}:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./infra/grafana/dashboards-monitoring:/var/lib/grafana/dashboards-monitoring:ro
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  prometheus:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+      - --web.enable-lifecycle
+    ports: ["${PORT_PROMETHEUS:-9091}:9090"]
+    volumes:
+      - ./infra/monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  node-exporter:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/prom/node-exporter:v1.8.2
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|mnt|usr/lib/wsl|var/lib/docker/.+)($$|/)
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    restart: unless-stopped
+
+  docker-exporter:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/library/python:3.12-alpine
+    command: ["python", "-u", "/exporter/exporter.py"]
+    environment:
+      COMPOSE_PROJECT: students-platform
+    volumes:
+      - ./infra/monitoring/docker-exporter:/exporter:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/danielqsj/kafka-exporter:v1.9.0
+    command: ["--kafka.server=kafka:9092", "--kafka.version=3.9.0", "--topic.filter=.*", "--group.filter=.*"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: ${DOCKERHUB_MIRROR:-docker.io}/prom/blackbox-exporter:v0.25.0
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./infra/monitoring/blackbox:/etc/blackbox:ro
+    restart: unless-stopped
+
+  portal:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: students-platform/portal:1.0
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Students: Server=mssql,1433;Database=Students;User Id=${APP_SQL_USER};Password=${APP_SQL_PASSWORD};Encrypt=False;TrustServerCertificate=True
+      ConnectionStrings__Portal: Server=mssql,1433;Database=StudentsPortal;User Id=${APP_SQL_USER};Password=${APP_SQL_PASSWORD};Encrypt=False;TrustServerCertificate=True
+      ClickHouse__Url: http://clickhouse:8123
+      ClickHouse__Database: ${CLICKHOUSE_DB}
+      ClickHouse__User: ${CLICKHOUSE_USER}
+      ClickHouse__Password: ${CLICKHOUSE_PASSWORD}
+      Jwt__Key: ${PORTAL_JWT_KEY}
+      Seed__AdminUser: ${PORTAL_ADMIN_USER}
+      Seed__AdminPassword: ${PORTAL_ADMIN_PASSWORD}
+      Links__Airflow: http://localhost:${PORT_AIRFLOW}
+      Links__Grafana: http://localhost:${PORT_GRAFANA}
+      Links__KafkaUi: http://localhost:${PORT_KAFKA_UI}
+      TZ: Asia/Tehran
+    ports: ["${PORT_PORTAL}:8080"]
+    depends_on:
+      mssql-init:
+        condition: service_completed_successfully
+      clickhouse-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  mssql-data:
+  pg-data:
+  ch-data:
+  kafka-data:
+  spark-checkpoints:
+  airflow-logs:
+  grafana-data:
+  prometheus-data:

@@ -1,0 +1,168 @@
+@page "/offerings"
+@inherits PortalPage
+@inject IJSRuntime JS
+
+<PageTitle>@L["offerings_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_operations"] / @L["nav_offerings"]</div>
+        <h1>@L["offerings_title"]</h1>
+        <p>@L["offerings_subtitle"]</p>
+    </div>
+</div>
+
+<div class="card narrow">
+    <div class="card-head"><h2>@(form.CourseOfferingId > 0 ? L.Format("editing_record", form.CourseOfferingId) : L["new_record"])</h2></div>
+    <fieldset disabled="@(!IsAdmin)" style="border: 0; margin: 0; padding: 0">
+        <div class="section">
+            <div class="form-grid cols-2">
+                <FormField Label="@L["department"]" Error="@FieldError("departmentCode")">
+                    <select class="input" @bind="form.DepartmentCode">
+                        <option value="">@L["select_department"]</option>
+                        @foreach (var d in lookups?.Departments ?? []) { <option value="@d.Value">@d.Value · @L.Pick(d.Label, d.LabelFa)</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["course_number"]" Error="@FieldError("courseNumber")">
+                    <select class="input" @bind="form.CourseNumber">
+                        <option value="0">—</option>
+                        @foreach (var c in CoursesOfDepartment) { <option value="@c.Value.Split('|')[1]">@c.Label</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["term"]" Error="@FieldError("termCode")">
+                    <select class="input" @bind="form.TermCode">
+                        <option value="">@L["select_term"]</option>
+                        @foreach (var t in lookups?.Terms ?? []) { <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["section"]" Error="@FieldError("section")"><input class="input ltr-input" type="number" min="1" max="99" @bind="form.Section" /></FormField>
+                <FormField Label="@L["capacity"]" Error="@FieldError("capacity")"><input class="input ltr-input" type="number" min="1" max="999" @bind="form.Capacity" /></FormField>
+            </div>
+        </div>
+    </fieldset>
+    @if (IsAdmin)
+    {
+        <div class="card-foot">
+            <button class="btn success" @onclick="Insert" disabled="@(Busy || form.CourseOfferingId > 0)">@L["insert"]</button>
+            <button class="btn warning" @onclick="Update" disabled="@(Busy || form.CourseOfferingId == 0)">@L["update"]</button>
+            <button class="btn danger" @onclick="Delete" disabled="@(Busy || form.CourseOfferingId == 0)">@L["delete"]</button>
+            <button class="btn ghost" @onclick="Clear">@L["clear"]</button>
+        </div>
+    }
+</div>
+
+<h2 style="margin: 26px 0 10px">@L["offering_records"]</h2>
+<div class="card">
+    <div class="card-body" style="padding-top: 16px">
+        <div class="filters f3">
+            <FormField Label="@L["search"]"><input class="input" @bind="search" @onkeydown="SearchOnEnter" placeholder="@L["search_offerings"]" /></FormField>
+            <FormField Label="@L["term"]">
+                <select class="input" @bind="term">
+                    <option value="">@L["all_terms"]</option>
+                    @foreach (var t in lookups?.Terms ?? []) { <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option> }
+                </select>
+            </FormField>
+            <FormField Label="@L["department"]">
+                <select class="input" @bind="department">
+                    <option value="">@L["all_departments"]</option>
+                    @foreach (var d in lookups?.Departments ?? []) { <option value="@d.Value">@L.Pick(d.Label, d.LabelFa)</option> }
+                </select>
+            </FormField>
+            <div class="filter-actions">
+                <button class="btn primary" @onclick="() => Load(1)">@L["search"]</button>
+                <button class="btn" @onclick="ClearSearch">@L["clear"]</button>
+            </div>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>@L["id"]</th><th>@L["course"]</th><th>@L["term"]</th><th>@L["section"]</th><th>@L["capacity"]</th><th style="min-width: 180px">@L["enrolled"]</th></tr></thead>
+            <tbody>
+                @if (page is not null && page.Items.Count == 0)
+                {
+                    <tr><td colspan="6" class="empty">@L["no_records"]</td></tr>
+                }
+                @foreach (var o in page?.Items ?? [])
+                {
+                    var fill = o.Capacity > 0 ? 100.0 * o.Enrolled / o.Capacity : 0;
+                    <tr class="clickable @(o.CourseOfferingId == form.CourseOfferingId ? "selected" : "")" @onclick="() => Select(o)">
+                        <td class="id num">@L.Digits(o.CourseOfferingId.ToString())</td>
+                        <td><span class="mono">@o.DepartmentCode-@o.CourseNumber</span><span class="sub">@o.CourseTitle</span></td>
+                        <td class="small">@L.Digits(o.TermCode)</td>
+                        <td class="num">@L.N(o.Section)</td>
+                        <td class="num">@L.N(o.Capacity)</td>
+                        <td>
+                            <div class="hbar-row">
+                                <div class="meta small"><span>@L.N(o.Enrolled) / @L.N(o.Capacity)</span><b>@L.Pct(fill, 0)</b></div>
+                                <div class="track @(fill > 100 ? "orange" : "green")"><span style="width: @Math.Min(100, fill).ToString("0", System.Globalization.CultureInfo.InvariantCulture)%"></span></div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (page is not null) { <Pager Page="page.Page" Pages="page.Pages" Total="page.Total" OnPage="Load" /> }
+</div>
+
+@code {
+    private CourseOfferingDto form = new();
+    private PagedResult<CourseOfferingDto>? page;
+    private Lookups? lookups;
+    private string search = "", term = "", department = "";
+
+    private IEnumerable<Option> CoursesOfDepartment
+        => (lookups?.Courses ?? []).Where(c => c.Value.StartsWith(form.DepartmentCode + "|", StringComparison.Ordinal));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RunAsync(async () => lookups = await LookupsAsync());
+        await Load(1);
+    }
+
+    private async Task Load(int pageNumber)
+        => await RunAsync(async () => page = await Api.GetAsync<PagedResult<CourseOfferingDto>>(ApiClient.Query("api/offerings",
+               ("search", search), ("term", term), ("department", department), ("page", pageNumber))));
+
+    private async Task SearchOnEnter(KeyboardEventArgs e) { if (e.Key == "Enter") await Load(1); }
+
+    private async Task ClearSearch() { search = term = department = ""; await Load(1); }
+
+    private void Select(CourseOfferingDto o)
+    {
+        form = new CourseOfferingDto
+        {
+            CourseOfferingId = o.CourseOfferingId, DepartmentCode = o.DepartmentCode, CourseNumber = o.CourseNumber,
+            TermCode = o.TermCode, Section = o.Section, Capacity = o.Capacity,
+        };
+        Errors.Clear();
+    }
+
+    private void Clear() { form = new CourseOfferingDto(); Errors.Clear(); }
+
+    private async Task Insert()
+    {
+        SavedId? saved = null;
+        if (await RunAsync(async () => saved = await Api.PostAsync<SavedId>("api/offerings", form), "saved_cdc"))
+        {
+            form.CourseOfferingId = saved!.Id;
+            await Load(1);
+        }
+    }
+
+    private async Task Update()
+    {
+        if (await RunAsync(() => Api.PutAsync<SavedId>($"api/offerings/{form.CourseOfferingId}", form), "saved_cdc"))
+            await Load(page?.Page ?? 1);
+    }
+
+    private async Task Delete()
+    {
+        if (!await JS.InvokeAsync<bool>("portal.confirm", L.Format("confirm_delete", form.CourseOfferingId))) return;
+        if (await RunAsync(() => Api.DeleteAsync($"api/offerings/{form.CourseOfferingId}"), "deleted"))
+        {
+            Clear();
+            await Load(page?.Page ?? 1);
+        }
+    }
+}

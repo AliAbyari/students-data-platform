@@ -1,0 +1,88 @@
+@inject I18n L
+
+@if (Items.Count == 0)
+{
+    <div class="empty small">@L["no_records"]</div>
+}
+else
+{
+    <div class="chart">
+        <svg viewBox="0 0 @Width @Height" role="img" aria-label="@Title">
+            @for (var i = 0; i <= 4; i++)
+            {
+                var y = Top + PlotHeight - PlotHeight * i / 4.0;
+                <g>
+                    <line class="grid-line" x1="@Left" x2="@(Width - 8)" y1="@F(y)" y2="@F(y)" />
+                    <text x="@(Left - 8)" y="@F(y + 4)" text-anchor="end">@L.N(Max * i / 4.0, Max >= 20 ? 0 : 1)</text>
+                </g>
+            }
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                var item = Items[i];
+                var slot = PlotWidth / Items.Count;
+                var barWidth = Math.Max(2, slot * (Paired ? 0.36 : 0.62));
+                var x = Left + slot * i + (slot - barWidth * (Paired ? 2 : 1)) / 2;
+                var h = PlotHeight * item.Value / Max;
+                <rect class="bar" x="@F(x)" y="@F(Top + PlotHeight - h)" width="@F(barWidth)" height="@F(h)" rx="3">
+                    <title>@Label(item): @L.N(item.Value, Decimals)</title>
+                </rect>
+                @if (Paired && item.Extra is double extra)
+                {
+                    var h2 = PlotHeight * extra / Max;
+                    <rect class="bar alt" x="@F(x + barWidth)" y="@F(Top + PlotHeight - h2)" width="@F(barWidth)" height="@F(h2)" rx="3">
+                        <title>@Label(item): @L.N(extra, Decimals)</title>
+                    </rect>
+                }
+                @if (i % LabelStep == 0)
+                {
+                    <g><text x="@F(Left + slot * i + slot / 2)" y="@(Height - 6)" text-anchor="middle">@L.Digits(Label(item))</text></g>
+                }
+            }
+        </svg>
+    </div>
+    @if (Paired)
+    {
+        <div class="legend">
+            <span><i style="background: var(--primary)"></i>@SeriesA</span>
+            <span><i style="background: var(--violet)"></i>@SeriesB</span>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public IReadOnlyList<LabelValue> Items { get; set; } = [];
+    [Parameter] public bool Paired { get; set; }
+    [Parameter] public string? SeriesA { get; set; }
+    [Parameter] public string? SeriesB { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public int Height { get; set; } = 220;
+    [Parameter] public int Decimals { get; set; }
+
+    private const int Width = 640;
+    private const int Left = 48;
+    private const int Top = 10;
+    private int PlotHeight => Height - Top - 28;
+    private double PlotWidth => Width - Left - 8;
+    private int LabelStep => Math.Max(1, (int)Math.Ceiling(Items.Count / 14.0));
+
+    private double Max
+    {
+        get
+        {
+            var max = Items.Select(i => Math.Max(i.Value, Paired ? i.Extra ?? 0 : 0)).DefaultIfEmpty(1).Max();
+            return NiceCeiling(max <= 0 ? 1 : max);
+        }
+    }
+
+    private string Label(LabelValue item) => L.Pick(item.Label, item.LabelFa);
+
+    private static double NiceCeiling(double value)
+    {
+        var magnitude = Math.Pow(10, Math.Floor(Math.Log10(value)));
+        foreach (var step in new[] { 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10 })
+            if (step * magnitude >= value) return step * magnitude;
+        return 10 * magnitude;
+    }
+
+    private static string F(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

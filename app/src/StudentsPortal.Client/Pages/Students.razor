@@ -1,0 +1,248 @@
+@page "/students"
+@inherits PortalPage
+
+<PageTitle>@L["students_title"] · @L["app_name"]</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumb">@L["nav_operations"] / @L["nav_students"]</div>
+        <h1>@L["students_title"]</h1>
+        <p>@L["students_subtitle"]</p>
+    </div>
+</div>
+
+@if (!IsAdmin)
+{
+    <div class="notice" style="margin-bottom: 16px"><Icon Name="shield" />@L["read_only"]</div>
+}
+
+<div class="card narrow" style="max-width: 980px">
+    <div class="card-head">
+        <h2>@(form.StudentId > 0 ? L.Format("editing_record", form.StudentId) : L["new_record"])</h2>
+        @if (form.StudentId > 0)
+        {
+            <a class="btn sm" href="students/@form.StudentId/history"><Icon Name="history" Size="15" />@L["history"]</a>
+        }
+    </div>
+    <fieldset disabled="@(!IsAdmin)" style="border: 0; margin: 0; padding: 0">
+        <div class="section">
+            <h3>@L["personal_info"]</h3>
+            <div class="form-grid">
+                <FormField Label="@L["first_name"]" Error="@FieldError("firstName")"><input class="input @Invalid("firstName")" @bind="form.FirstName" maxlength="40" /></FormField>
+                <FormField Label="@L["middle_name"]" Optional="true" Error="@FieldError("middleName")"><input class="input" @bind="form.MiddleName" maxlength="40" /></FormField>
+                <FormField Label="@L["last_name"]" Error="@FieldError("lastName")"><input class="input @Invalid("lastName")" @bind="form.LastName" maxlength="40" /></FormField>
+                <FormField Label="@L["date_of_birth"]" Error="@FieldError("dateOfBirth")" Help="@JalaliHint(form.DateOfBirth)">
+                    <input class="input @Invalid("dateOfBirth")" type="date" @bind="form.DateOfBirth" />
+                </FormField>
+                <FormField Label="@L["gender"]" Error="@FieldError("gender")">
+                    <select class="input" @bind="form.Gender">
+                        <option value="F">@L["gender_F"]</option>
+                        <option value="M">@L["gender_M"]</option>
+                    </select>
+                </FormField>
+            </div>
+        </div>
+        <div class="section">
+            <h3>@L["contact_info"]</h3>
+            <div class="form-grid">
+                <FormField Label="@L["email"]" Error="@FieldError("email")"><input class="input ltr-input @Invalid("email")" type="email" @bind="form.Email" maxlength="80" /></FormField>
+                <FormField Label="@L["telephone"]" Error="@FieldError("telephone")"><input class="input ltr-input @Invalid("telephone")" @bind="form.Telephone" maxlength="20" /></FormField>
+                <FormField Label="@L["street"]" Error="@FieldError("streetAddress")"><input class="input @Invalid("streetAddress")" @bind="form.StreetAddress" maxlength="50" /></FormField>
+                <FormField Label="@L["city"]" Error="@FieldError("city")"><input class="input @Invalid("city")" @bind="form.City" maxlength="30" /></FormField>
+                <FormField Label="@L["state"]" Error="@FieldError("state")"><input class="input ltr-input @Invalid("state")" @bind="form.State" maxlength="2" placeholder="TX" /></FormField>
+                <FormField Label="@L["zip"]" Error="@FieldError("zipCode")"><input class="input ltr-input @Invalid("zipCode")" @bind="form.ZipCode" maxlength="5" /></FormField>
+            </div>
+        </div>
+        <div class="section">
+            <h3>@L["academic_info"]</h3>
+            <div class="form-grid cols-2">
+                <FormField Label="@L["degree"]" Error="@FieldError("degreePursued")">
+                    <select class="input @Invalid("degreePursued")" @bind="form.DegreePursued">
+                        <option value="">@L["select_degree"]</option>
+                        @foreach (var d in lookups?.Degrees ?? []) { <option value="@d.Value">@d.Label</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["class_standing"]" Optional="true">
+                    <select class="input" @bind="form.ClassStandingCode">
+                        <option value="">@L["none"]</option>
+                        @foreach (var c in lookups?.ClassStandings ?? []) { <option value="@c.Value">@c.Value · @c.Label</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["enrollment_term"]" Error="@FieldError("enrollmentTerm")">
+                    <select class="input @Invalid("enrollmentTerm")" @bind="form.EnrollmentTerm">
+                        <option value="">@L["select_term"]</option>
+                        @foreach (var t in lookups?.Terms ?? []) { <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option> }
+                    </select>
+                </FormField>
+                <FormField Label="@L["student_status"]" Error="@FieldError("studentStatus")">
+                    <select class="input" @bind="form.StudentStatus">
+                        <option value="A">@L["status_active"]</option>
+                        <option value="G">@L["status_graduated"]</option>
+                        <option value="W">@L["status_withdrawn"]</option>
+                    </select>
+                </FormField>
+            </div>
+        </div>
+    </fieldset>
+    @if (IsAdmin)
+    {
+        <div class="card-foot">
+            <button class="btn success" @onclick="Insert" disabled="@(Busy || form.StudentId > 0)"><Icon Name="plus" Size="15" />@L["insert"]</button>
+            <button class="btn warning" @onclick="Update" disabled="@(Busy || form.StudentId == 0)">@L["update"]</button>
+            <button class="btn danger" @onclick="Delete" disabled="@(Busy || form.StudentId == 0)">@L["delete"]</button>
+            <button class="btn ghost" @onclick="Clear">@L["clear"]</button>
+            @if (Busy) { <span class="spinner"></span> }
+        </div>
+    }
+</div>
+
+<h2 style="margin: 26px 0 10px">@L["student_records"]</h2>
+<div class="card">
+    <div class="card-body" style="padding-top: 16px">
+        <div class="filters">
+            <FormField Label="@L["search"]"><input class="input" @bind="search" @onkeydown="SearchOnEnter" placeholder="@L["search_students"]" /></FormField>
+            <FormField Label="@L["status"]">
+                <select class="input" @bind="status">
+                    <option value="">@L["all_statuses"]</option>
+                    <option value="A">@L["status_active"]</option>
+                    <option value="G">@L["status_graduated"]</option>
+                    <option value="W">@L["status_withdrawn"]</option>
+                </select>
+            </FormField>
+            <FormField Label="@L["degree"]">
+                <select class="input" @bind="degree">
+                    <option value="">@L["all_degrees"]</option>
+                    @foreach (var d in lookups?.Degrees ?? []) { <option value="@d.Value">@d.Label</option> }
+                </select>
+            </FormField>
+            <FormField Label="@L["enrollment_term"]">
+                <select class="input" @bind="term">
+                    <option value="">@L["all_terms"]</option>
+                    @foreach (var t in lookups?.Terms ?? []) { <option value="@t.Value">@L.Digits(L.Pick(t.Label, t.LabelFa))</option> }
+                </select>
+            </FormField>
+            <div class="filter-actions">
+                <button class="btn primary" @onclick="() => Load(1)"><Icon Name="search" Size="15" />@L["search"]</button>
+                <button class="btn" @onclick="ClearSearch">@L["clear"]</button>
+            </div>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr><th>@L["id"]</th><th>@L["full_name"]</th><th>@L["email"]</th><th>@L["degree"]</th><th>@L["enrollment_term"]</th><th>@L["status"]</th><th></th></tr>
+            </thead>
+            <tbody>
+                @if (page is null)
+                {
+                    <tr><td colspan="7"><div class="skeleton" style="height: 120px"></div></td></tr>
+                }
+                else if (page.Items.Count == 0)
+                {
+                    <tr><td colspan="7" class="empty">@L["no_records"]</td></tr>
+                }
+                else
+                {
+                    @foreach (var s in page.Items)
+                    {
+                        <tr class="clickable @(s.StudentId == form.StudentId ? "selected" : "")" @onclick="() => Select(s)">
+                            <td class="id num">@L.Digits(s.StudentId.ToString())</td>
+                            <td>@s.FirstName @s.LastName<span class="sub">@s.City, @s.State</span></td>
+                            <td class="small ltr">@s.Email</td>
+                            <td class="small">@s.DegreeName</td>
+                            <td class="small">@L.Digits(s.EnrollmentTerm)</td>
+                            <td><Badges Kind="status" Value="@s.StudentStatus" /></td>
+                            <td><a class="btn sm" href="students/@s.StudentId/history" @onclick:stopPropagation="true"><Icon Name="history" Size="14" />@L["history"]</a></td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (page is not null)
+    {
+        <Pager Page="page.Page" Pages="page.Pages" Total="page.Total" OnPage="Load" />
+    }
+</div>
+
+@code {
+    private StudentDto form = new();
+    private PagedResult<StudentDto>? page;
+    private Lookups? lookups;
+    private string search = "", status = "", degree = "", term = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RunAsync(async () => lookups = await LookupsAsync());
+        await Load(1);
+    }
+
+    private async Task Load(int pageNumber)
+    {
+        await RunAsync(async () => page = await Api.GetAsync<PagedResult<StudentDto>>(ApiClient.Query("api/students",
+            ("search", search), ("status", status), ("degree", degree), ("term", term), ("page", pageNumber))));
+    }
+
+    private async Task SearchOnEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Load(1);
+    }
+
+    private async Task ClearSearch()
+    {
+        search = status = degree = term = "";
+        await Load(1);
+    }
+
+    private void Select(StudentDto s)
+    {
+        form = Clone(s);
+        Errors.Clear();
+    }
+
+    private void Clear()
+    {
+        form = new StudentDto();
+        Errors.Clear();
+    }
+
+    private async Task Insert()
+    {
+        int? id = null;
+        if (await RunAsync(async () => id = (await Api.PostAsync<SavedId>("api/students", form)).Id, "saved_cdc"))
+        {
+            form.StudentId = id ?? 0;
+            await Load(1);
+        }
+    }
+
+    private async Task Update()
+    {
+        if (await RunAsync(() => Api.PutAsync<SavedId>($"api/students/{form.StudentId}", form), "saved_cdc"))
+            await Load(page?.Page ?? 1);
+    }
+
+    private async Task Delete()
+    {
+        if (!await JS.InvokeAsync<bool>("portal.confirm", L.Format("confirm_delete", form.StudentId))) return;
+        if (await RunAsync(() => Api.DeleteAsync($"api/students/{form.StudentId}"), "deleted"))
+        {
+            Clear();
+            await Load(page?.Page ?? 1);
+        }
+    }
+
+    private string? JalaliHint(DateTime? date) => L.IsFa && date is not null ? L.Format("jalali_hint", L.Date(date)) : null;
+
+    private string Invalid(string field) => Errors.ContainsKey(field) ? "invalid" : "";
+
+    private static StudentDto Clone(StudentDto s) => new()
+    {
+        StudentId = s.StudentId, FirstName = s.FirstName, MiddleName = s.MiddleName, LastName = s.LastName, Gender = s.Gender,
+        DateOfBirth = s.DateOfBirth, Email = s.Email, Telephone = s.Telephone, StreetAddress = s.StreetAddress, City = s.City,
+        State = s.State, ZipCode = s.ZipCode, DegreePursued = s.DegreePursued, DegreeName = s.DegreeName,
+        ClassStandingCode = s.ClassStandingCode, StudentStatus = s.StudentStatus, EnrollmentTerm = s.EnrollmentTerm,
+    };
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+}
